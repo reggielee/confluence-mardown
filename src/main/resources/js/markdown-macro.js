@@ -22,6 +22,25 @@
     var DIAGRAM_PLACEHOLDER_REGEX = /___DIAGRAM_PLACEHOLDER_(\d+)___/g;
     var PROCESSED_ATTR = 'data-markdown-rendered';
 
+    /**
+     * Delay (ms) after an iframe loads before re-scanning for macro content.
+     * Gives Confluence time to inject the macro HTML into the iframe body.
+     */
+    var IFRAME_CONTENT_LOAD_DELAY = 100;
+
+    /**
+     * Debounce interval (ms) for MutationObserver callbacks.
+     * Prevents rapid re-initialisation during editor transitions that may
+     * add/remove many DOM nodes in quick succession.
+     */
+    var MUTATION_DEBOUNCE_DELAY = 200;
+
+    /**
+     * Delay (ms) before handling a cross-frame render-request message.
+     * Allows the sending iframe's DOM to settle before the parent scans it.
+     */
+    var CROSS_FRAME_MESSAGE_DELAY = 100;
+
     /* ------------------------------------------------------------------ */
     /*  Helpers                                                             */
     /* ------------------------------------------------------------------ */
@@ -114,8 +133,7 @@
             }
             iframe.setAttribute('data-md-watched', 'true');
             iframe.addEventListener('load', function () {
-                // Small delay to let Confluence inject content into the iframe
-                setTimeout(initMarkdownMacro, 100);
+                setTimeout(initMarkdownMacro, IFRAME_CONTENT_LOAD_DELAY);
             });
         });
     }
@@ -294,7 +312,7 @@
             if (shouldReinit) {
                 // Debounce to avoid rapid re-init during editor transitions
                 clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(initMarkdownMacro, 200);
+                debounceTimer = setTimeout(initMarkdownMacro, MUTATION_DEBOUNCE_DELAY);
             }
         });
 
@@ -317,7 +335,7 @@
         // Listen for render requests from child frames
         window.addEventListener('message', function (event) {
             if (event.data && event.data.type === 'markdown-macro-render-request') {
-                setTimeout(initMarkdownMacro, 100);
+                setTimeout(initMarkdownMacro, CROSS_FRAME_MESSAGE_DELAY);
             }
         });
 
