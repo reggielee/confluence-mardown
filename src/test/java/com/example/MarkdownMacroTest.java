@@ -72,6 +72,22 @@ public class MarkdownMacroTest {
     }
 
     @Test
+    public void execute_includesCrossFrameNotifyScript() throws Exception {
+        String result = macro.execute(null, "# Hello", null);
+        assertTrue("Should contain cross-frame postMessage script",
+                result.contains("markdown-macro-render-request"));
+        assertTrue("Should use postMessage for same-origin only",
+                result.contains("window.location.origin"));
+    }
+
+    @Test
+    public void execute_emptyBodyDoesNotIncludeNotifyScript() throws Exception {
+        String result = macro.execute(null, null, null);
+        assertFalse("Empty body should not contain notify script",
+                result.contains("markdown-macro-render-request"));
+    }
+
+    @Test
     public void execute_requiresWebResources() throws Exception {
         macro.execute(null, "# Hello", null);
         verify(webResourceManager).requireResource(
@@ -88,7 +104,8 @@ public class MarkdownMacroTest {
     @Test
     public void execute_escapesHtmlInBody() throws Exception {
         String result = macro.execute(null, "<script>alert(1)</script>", null);
-        assertFalse("Raw <script> must not appear", result.contains("<script>"));
+        assertFalse("User-supplied <script>alert(1) must be escaped",
+                result.contains("<script>alert(1)</script>"));
         assertTrue("Escaped tag should appear in source pre",
                 result.contains("&lt;script&gt;"));
     }

@@ -9,8 +9,10 @@
  * renders the diagrams into SVG, and swaps the visible content.
  *
  * A MutationObserver watches for dynamically-inserted macro containers so that
- * the Confluence editor preview also triggers rendering.  Diagram code blocks
- * are emitted as placeholder elements with the source in a hidden "pre" element.
+ * the Confluence editor preview also triggers rendering.  Same-origin child
+ * iframes (e.g. the blank.html preview frame) are also scanned for macro
+ * content, and cross-frame postMessage communication ensures the parent is
+ * notified when new content appears inside an iframe.
  *
  * A legacy client-side path is kept for backward-compatibility with pages that
  * were cached before the server-side rendering change.
@@ -24,6 +26,29 @@
 
     var DIAGRAM_PLACEHOLDER_PREFIX = 'DIAGRAMPLACEHOLDER';
     var DIAGRAM_PLACEHOLDER_REGEX = /DIAGRAMPLACEHOLDER(\d+)END/g;
+
+    /* ------------------------------------------------------------------ */
+    /*  Cross-frame timing constants                                        */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Delay (ms) after an iframe loads before re-scanning for macro content.
+     * Gives Confluence time to inject the macro HTML into the iframe body.
+     */
+    var IFRAME_CONTENT_LOAD_DELAY = 100;
+
+    /**
+     * Debounce interval (ms) for MutationObserver callbacks.
+     * Prevents rapid re-initialisation during editor transitions that may
+     * add/remove many DOM nodes in quick succession.
+     */
+    var MUTATION_DEBOUNCE_DELAY = 200;
+
+    /**
+     * Delay (ms) before handling a cross-frame render-request message.
+     * Allows the sending iframe's DOM to settle before the parent scans it.
+     */
+    var CROSS_FRAME_MESSAGE_DELAY = 100;
 
     /* ------------------------------------------------------------------ */
     /*  Helpers                                                             */
@@ -40,6 +65,62 @@
             .replace(/&gt;/g, '>')
             .replace(/&lt;/g, '<')
             .replace(/&amp;/g, '&');
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Cross-frame helpers                                                 */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Collect all unprocessed macro containers from the given document and
+     * from any same-origin child iframes.
+     *
+     * Confluence's editor preview renders macro HTML inside a blank.html
+     * iframe.  By also scanning child iframes we ensure the macro content
+     * is found regardless of which frame the script is executing in.
+     *
+     * @param {Document} doc  The document to search.
+     * @returns {Array<Element>}
+     */
+    function collectContainers(doc) {
+        var containers = [];
+
+        // Containers in the current document
+        var local = doc.querySelectorAll('.markdown-macro-body');
+        Array.prototype.push.apply(containers, Array.prototype.slice.call(local));
+
+        // Containers inside same-origin child iframes
+        var iframes = doc.querySelectorAll('iframe');
+        Array.prototype.forEach.call(iframes, function (iframe) {
+            try {
+                var iframeDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                if (iframeDoc) {
+                    var nested = iframeDoc.querySelectorAll('.markdown-macro-body');
+                    Array.prototype.push.apply(containers, Array.prototype.slice.call(nested));
+                }
+            } catch (_e) {
+                // Cross-origin iframe - cannot access, skip silently
+            }
+        });
+
+        return containers;
+    }
+
+    /**
+     * Attach a one-time load listener to every iframe in the document so that
+     * when an iframe finishes loading we re-scan for macro content.
+     */
+    function watchIframeLoads(doc) {
+        var iframes = doc.querySelectorAll('iframe');
+        Array.prototype.forEach.call(iframes, function (iframe) {
+            if (iframe.getAttribute('data-md-watched')) {
+                return;
+            }
+            iframe.setAttribute('data-md-watched', 'true');
+            iframe.addEventListener('load', function () {
+                setTimeout(initMarkdownMacro, IFRAME_CONTENT_LOAD_DELAY);
+            });
+        });
     }
 
     /* ------------------------------------------------------------------ */
@@ -228,10 +309,10 @@
         }
 
         if (renderedEl.innerHTML.trim()) {
-            // Server already rendered content – just handle diagrams
+            // Server already rendered content - just handle diagrams
             processDiagramPlaceholders(container);
         } else {
-            // Legacy path – render everything client-side
+            // Legacy path - render everything client-side
             legacyClientRender(container);
         }
     }
@@ -250,20 +331,25 @@
             });
         }
 
-        var containers = document.querySelectorAll('.markdown-macro-body');
+        var containers = collectContainers(document);
         Array.prototype.forEach.call(containers, function (container) {
             processContainer(container);
         });
+
+        // Watch for iframes that may load preview content later
+        watchIframeLoads(document);
     }
 
     /* ------------------------------------------------------------------ */
-    /*  MutationObserver – detect dynamically-inserted macro containers     */
+    /*  MutationObserver - detect dynamically-inserted macro containers     */
     /* ------------------------------------------------------------------ */
 
     function observeForNewMacros() {
         if (typeof MutationObserver === 'undefined') {
             return;
         }
+
+        var debounceTimer = null;
 
 
             // Mark the container as processed so CSS switches from showing the
@@ -275,49 +361,103 @@
             return;
         }
 
+
         var observer = new MutationObserver(function (mutations) {
-            mutations.forEach(function (mutation) {
-                Array.prototype.forEach.call(mutation.addedNodes, function (node) {
+            var shouldReinit = false;
+
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
                     if (node.nodeType !== 1) {
-                        return;
+                        continue;
                     }
+
+                    // New macro container added directly
+
 
 
                     var containers;
-                    if (node.classList && node.classList.contains('markdown-macro-body')) {
-                        containers = [node];
-                    } else if (node.querySelectorAll) {
-                        containers = node.querySelectorAll('.markdown-macro-body');
-                    }
 
-                    if (containers && containers.length > 0) {
-                        Array.prototype.forEach.call(containers, function (container) {
-                            processContainer(container);
-                        });
+                    if (node.classList && node.classList.contains('markdown-macro-body')) {
+                        shouldReinit = true;
+                        break;
                     }
-                });
-            });
+                    // New iframe added (potential preview frame)
+                    if (node.tagName === 'IFRAME') {
+                        shouldReinit = true;
+                        break;
+                    }
+                    // Container or iframe added as a descendant
+                    if (node.querySelector &&
+                        (node.querySelector('.markdown-macro-body') || node.querySelector('iframe'))) {
+                        shouldReinit = true;
+                        break;
+                    }
+                }
+                if (shouldReinit) {
+                    break;
+                }
+            }
+
+            if (shouldReinit) {
+                // Debounce to avoid rapid re-init during editor transitions
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(initMarkdownMacro, MUTATION_DEBOUNCE_DELAY);
+            }
         });
 
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body || document.documentElement, {
+            childList: true,
+            subtree: true
+        });
     }
 
     /* ------------------------------------------------------------------ */
-    /*  Bootstrap – wait for the DOM                                       */
+    /*  Cross-frame messaging                                               */
     /* ------------------------------------------------------------------ */
 
-    if (typeof AJS !== 'undefined') {
-        AJS.toInit(function () {
-            initMarkdownMacro();
-            observeForNewMacros();
+    /**
+     * Listen for messages from child iframes requesting a re-render.
+     * Also, if we are inside an iframe ourselves, notify the parent that
+     * macro content may be available for rendering.
+     */
+    function setupCrossFrameMessaging() {
+        // Listen for render requests from child frames
+        window.addEventListener('message', function (event) {
+            if (event.data && event.data.type === 'markdown-macro-render-request') {
+                setTimeout(initMarkdownMacro, CROSS_FRAME_MESSAGE_DELAY);
+            }
         });
-    } else if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            initMarkdownMacro();
-            observeForNewMacros();
-        });
-    } else {
+
+        // If running inside an iframe, notify the parent to trigger rendering
+        if (window !== window.parent) {
+            try {
+                window.parent.postMessage(
+                    { type: 'markdown-macro-render-request' },
+                    window.location.origin
+                );
+            } catch (_e) {
+                // Cross-origin parent - cannot notify
+            }
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Bootstrap - wait for the DOM                                       */
+    /* ------------------------------------------------------------------ */
+
+    function bootstrap() {
         initMarkdownMacro();
         observeForNewMacros();
+        setupCrossFrameMessaging();
+    }
+
+    if (typeof AJS !== 'undefined') {
+        AJS.toInit(bootstrap);
+    } else if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootstrap);
+    } else {
+        bootstrap();
     }
 })();

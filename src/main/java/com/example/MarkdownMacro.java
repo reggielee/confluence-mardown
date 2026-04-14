@@ -36,6 +36,25 @@ public class MarkdownMacro implements Macro {
     private static final Pattern FENCE_REGEX =
             Pattern.compile("```(mermaid|graphviz|dot)\\s*\\n([\\s\\S]*?)```");
 
+    /**
+     * Inline script appended to the macro output.  When the macro HTML is
+     * rendered inside Confluence's preview iframe (blank.html), this script
+     * notifies the parent frame so that the main {@code markdown-macro.js}
+     * can reach into the iframe and render the content.
+     *
+     * <p>The script only fires a single postMessage to the same origin and
+     * is a no-op when the macro is rendered in the top-level document.</p>
+     */
+    private static final String CROSS_FRAME_NOTIFY_SCRIPT =
+            "<script>(function(){"
+            + "if(window!==window.parent){"
+            + "try{window.parent.postMessage("
+            + "{type:'markdown-macro-render-request'},"
+            + "window.location.origin"
+            + ");}catch(e){}"
+            + "}"
+            + "})();</script>";
+
     private final WebResourceManager webResourceManager;
     private final Parser markdownParser;
     private final HtmlRenderer htmlRenderer;
@@ -86,7 +105,8 @@ public class MarkdownMacro implements Macro {
                 + "<div class=\"markdown-rendered\">"
                 + renderedHtml
                 + "</div>"
-                + "</div>";
+                + "</div>"
+                + CROSS_FRAME_NOTIFY_SCRIPT;
     }
 
     @Override
