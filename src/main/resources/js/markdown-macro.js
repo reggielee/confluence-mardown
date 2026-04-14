@@ -390,7 +390,11 @@
                 legacyClientRender(container);
             }
         } catch (_e) {
-            // Ensure the container is still marked as rendered even on error
+            // Ensure the container is still marked as rendered even on error.
+            // Log so rendering failures are diagnosable in the browser console.
+            if (typeof console !== 'undefined' && console.error) {
+                console.error('Failed to process markdown container:', _e);
+            }
         }
 
         // Mark the container as processed so CSS switches from showing the
