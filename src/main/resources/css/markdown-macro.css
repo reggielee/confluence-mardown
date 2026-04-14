@@ -8,9 +8,22 @@
     line-height: 1.6;
 }
 
-/* The raw Markdown source is hidden; rendering is done in .markdown-rendered */
-.markdown-macro-body .markdown-source {
+/*
+ * Progressive enhancement: the raw Markdown source is visible by default so
+ * that content is always readable.  Once the companion JavaScript has
+ * successfully parsed and rendered the Markdown, it adds the "js-rendered"
+ * class to the container, which hides the source and shows the rendered output.
+ */
+.markdown-macro-body.js-rendered .markdown-source {
     display: none;
+}
+
+.markdown-macro-body .markdown-rendered {
+    display: none;
+}
+
+.markdown-macro-body.js-rendered .markdown-rendered {
+    display: block;
 }
 
 /* Rendered Markdown area */

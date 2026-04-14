@@ -152,6 +152,10 @@
             var renderedEl = container.querySelector('.markdown-rendered');
             renderedEl.innerHTML = html;
 
+            // Mark the container as processed so CSS switches from showing the
+            // raw source to showing the rendered output.
+            container.classList.add('js-rendered');
+
             // Nothing more to do if there are no diagrams
             if (extracted.diagrams.length === 0) {
                 return;
