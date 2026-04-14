@@ -37,6 +37,8 @@
         <context>page</context>
         <context>blogpost</context>
         <context>atl.general</context>
+        <context>atl.editor</context>
+        <context>macro-browser</context>
     </web-resource>
 
     <!-- Macro definition -->

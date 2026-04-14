@@ -23,6 +23,25 @@ public class MarkdownMacro implements Macro {
     private static final String WEB_RESOURCE_KEY =
             "com.example.my-markdown-macro:markdown-macro-resources";
 
+    /**
+     * Inline script appended to the macro output.  When the macro HTML is
+     * rendered inside Confluence's preview iframe (blank.html), this script
+     * notifies the parent frame so that the main {@code markdown-macro.js}
+     * can reach into the iframe and render the content.
+     *
+     * <p>The script only fires a single postMessage to the same origin and
+     * is a no-op when the macro is rendered in the top-level document.</p>
+     */
+    private static final String CROSS_FRAME_NOTIFY_SCRIPT =
+            "<script>(function(){"
+            + "if(window!==window.parent){"
+            + "try{window.parent.postMessage("
+            + "{type:'markdown-macro-render-request'},"
+            + "window.location.origin"
+            + ");}catch(e){}"
+            + "}"
+            + "})();</script>";
+
     private final WebResourceManager webResourceManager;
 
     public MarkdownMacro(WebResourceManager webResourceManager) {
@@ -45,7 +64,8 @@ public class MarkdownMacro implements Macro {
                 + escaped
                 + "</pre>"
                 + "<div class=\"markdown-rendered\"></div>"
-                + "</div>";
+                + "</div>"
+                + CROSS_FRAME_NOTIFY_SCRIPT;
     }
 
     @Override
