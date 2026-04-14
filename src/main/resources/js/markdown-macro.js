@@ -208,13 +208,13 @@
             renderDiagram(type, code, idx)
                 .then(function (svg) {
                     renderEl.innerHTML = '<div class="diagram-container">' + svg + '</div>';
-                    renderEl.style.display = '';
+                    renderEl.style.display = 'block';
                     sourceEl.style.display = 'none';
                 })
                 .catch(function (err) {
                     renderEl.innerHTML = '<pre class="diagram-error">Diagram render error: '
                         + (err.message || err) + '</pre>';
-                    renderEl.style.display = '';
+                    renderEl.style.display = 'block';
                     sourceEl.style.display = 'none';
                 });
         });
@@ -315,6 +315,10 @@
             // Legacy path - render everything client-side
             legacyClientRender(container);
         }
+
+        // Mark the container as processed so CSS switches from showing the
+        // raw source to showing the rendered output.
+        container.classList.add('js-rendered');
     }
 
     /* ------------------------------------------------------------------ */
@@ -351,17 +355,6 @@
 
         var debounceTimer = null;
 
-
-            // Mark the container as processed so CSS switches from showing the
-            // raw source to showing the rendered output.
-        container.classList.add('js-rendered');
-
-            // Nothing more to do if there are no diagrams
-        if (extracted.diagrams.length === 0) {
-            return;
-        }
-
-
         var observer = new MutationObserver(function (mutations) {
             var shouldReinit = false;
 
@@ -374,11 +367,6 @@
                     }
 
                     // New macro container added directly
-
-
-
-                    var containers;
-
                     if (node.classList && node.classList.contains('markdown-macro-body')) {
                         shouldReinit = true;
                         break;
