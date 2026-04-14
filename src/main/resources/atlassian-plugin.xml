@@ -30,6 +30,10 @@
         <resource type="download" name="markdown-macro.css"
                   location="css/markdown-macro.css"/>
 
+        <!-- Macro icon -->
+        <resource type="download" name="images/icon.png"
+                  location="images/icon.png"/>
+
         <context>page</context>
         <context>blogpost</context>
         <context>atl.general</context>
@@ -39,7 +43,7 @@
     <xhtml-macro key="markdown-chart"
                  name="markdown-chart"
                  class="com.example.MarkdownMacro"
-                 icon="/download/resources/com.example.my-markdown-macro/images/icon.png">
+                 icon="/download/resources/com.example.my-markdown-macro:markdown-macro-resources/images/icon.png">
         <category name="formatting"/>
         <description>Renders Markdown with Mermaid and Graphviz diagram support.</description>
         <parameters/>

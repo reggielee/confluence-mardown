@@ -3,6 +3,7 @@ package com.example;
 import com.atlassian.confluence.content.render.xhtml.ConversionContext;
 import com.atlassian.confluence.macro.Macro;
 import com.atlassian.confluence.macro.MacroExecutionException;
+import com.atlassian.plugin.webresource.WebResourceManager;
 
 import java.util.Map;
 
@@ -19,10 +20,20 @@ import java.util.Map;
 public class MarkdownMacro implements Macro {
 
     private static final String CSS_CLASS = "markdown-macro-body";
+    private static final String WEB_RESOURCE_KEY =
+            "com.example.my-markdown-macro:markdown-macro-resources";
+
+    private final WebResourceManager webResourceManager;
+
+    public MarkdownMacro(WebResourceManager webResourceManager) {
+        this.webResourceManager = webResourceManager;
+    }
 
     @Override
     public String execute(Map<String, String> parameters, String body,
                           ConversionContext conversionContext) throws MacroExecutionException {
+        webResourceManager.requireResource(WEB_RESOURCE_KEY);
+
         if (body == null || body.trim().isEmpty()) {
             return "<div class=\"" + CSS_CLASS + "\"></div>";
         }
