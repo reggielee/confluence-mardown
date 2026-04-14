@@ -37,7 +37,8 @@ my-markdown-macro/
 │   │       │   ├── markdown-macro.js    # Frontend rendering logic
 │   │       │   ├── marked.min.js        # Markdown parser (placeholder)
 │   │       │   ├── mermaid.min.js       # Mermaid renderer (placeholder)
-│   │       │   └── viz.js               # Graphviz WASM renderer (placeholder)
+│   │       │   ├── viz.js               # Graphviz WASM renderer (placeholder)
+│   │       │   └── full.render.js       # Graphviz render module (placeholder)
 │   │       └── css/
 │   │           └── markdown-macro.css   # Styles
 │   └── test/java/com/example/
@@ -63,7 +64,8 @@ The `src/main/resources/js/` directory contains **placeholder** files for the th
 |------|---------|---------------------|----------|
 | `marked.min.js` | [marked](https://github.com/markedjs/marked) | 4.3.0 | [CDN](https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js) |
 | `mermaid.min.js` | [mermaid](https://github.com/mermaid-js/mermaid) | 9.4.3 | [CDN](https://cdn.jsdelivr.net/npm/mermaid@9.4.3/dist/mermaid.min.js) |
-| `viz.js` | [viz.js](https://github.com/nicknisi/viz.js) | 2.1.2 | [unpkg](https://unpkg.com/viz.js@2.1.2/viz.js) + [full.render.js](https://unpkg.com/viz.js@2.1.2/full.render.js) |
+| `viz.js` | [viz.js](https://github.com/nicknisi/viz.js) | 2.1.2 | [unpkg](https://unpkg.com/viz.js@2.1.2/viz.js) |
+| `full.render.js` | viz.js render module | 2.1.2 | [unpkg](https://unpkg.com/viz.js@2.1.2/full.render.js) |
 
 ### 2. Build
 

@@ -23,6 +23,8 @@
                   location="js/mermaid.min.js"/>
         <resource type="download" name="viz.js"
                   location="js/viz.js"/>
+        <resource type="download" name="full.render.js"
+                  location="js/full.render.js"/>
 
         <!-- Plugin code -->
         <resource type="download" name="markdown-macro.js"
