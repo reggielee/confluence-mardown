@@ -115,6 +115,10 @@
     /**
      * Attach a one-time load listener to every iframe in the document so that
      * when an iframe finishes loading we re-scan for macro content.
+     *
+     * If an iframe has already finished loading (its readyState is
+     * "complete"), a deferred re-scan is scheduled immediately so that
+     * macro content injected before this function ran is not missed.
      */
     function watchIframeLoads(doc) {
         var iframes = doc.querySelectorAll('iframe');
@@ -126,6 +130,17 @@
             iframe.addEventListener('load', function () {
                 setTimeout(initMarkdownMacro, IFRAME_CONTENT_LOAD_DELAY);
             });
+
+            // If the iframe is already loaded, trigger a deferred re-scan so
+            // we don't miss content that was injected before we started watching.
+            try {
+                var iframeDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+                if (iframeDoc && (iframeDoc.readyState === 'complete' || iframeDoc.readyState === 'interactive')) {
+                    setTimeout(initMarkdownMacro, IFRAME_CONTENT_LOAD_DELAY);
+                }
+            } catch (_e) {
+                // Cross-origin iframe - cannot access, skip silently
+            }
         });
     }
 
@@ -232,12 +247,16 @@
      * Find diagram placeholder elements inside a container that was rendered
      * on the server.  For each one, read the source, render via mermaid / viz,
      * and swap the visible content.
+     *
+     * @returns {Promise} resolves when all diagrams have been rendered (or failed).
      */
     function processDiagramPlaceholders(container) {
         var placeholders = container.querySelectorAll('.diagram-placeholder');
         if (placeholders.length === 0) {
-            return;
+            return Promise.resolve();
         }
+
+        var promises = [];
 
         Array.prototype.forEach.call(placeholders, function (placeholder) {
             var type = placeholder.getAttribute('data-diagram-type');
@@ -251,7 +270,7 @@
             // textContent already decodes HTML entities, so no unescapeHtml needed
             var code = sourceEl.textContent || sourceEl.innerText || '';
 
-            renderDiagram(type, code, idx)
+            var p = renderDiagram(type, code, idx)
                 .then(function (svg) {
                     renderEl.innerHTML = '<div class="diagram-container">' + svg + '</div>';
                     renderEl.style.display = 'block';
@@ -263,7 +282,10 @@
                     renderEl.style.display = 'block';
                     sourceEl.style.display = 'none';
                 });
+            promises.push(p);
         });
+
+        return Promise.all(promises);
     }
 
     /* ------------------------------------------------------------------ */
@@ -343,6 +365,10 @@
      * Process a single .markdown-macro-body container.  If the server already
      * rendered content into .markdown-rendered we only handle diagrams;
      * otherwise we fall back to the legacy full client-side rendering path.
+     *
+     * The {@code js-rendered} class is added inside a {@code finally} block so
+     * that the CSS visibility switch always happens, even when diagram
+     * rendering or the legacy client-side path throws an error.
      */
     function processContainer(container) {
         if (container.getAttribute('data-macro-rendered')) {
@@ -355,12 +381,20 @@
             return;
         }
 
-        if (renderedEl.innerHTML.trim()) {
-            // Server already rendered content - just handle diagrams
-            processDiagramPlaceholders(container);
-        } else {
-            // Legacy path - render everything client-side
-            legacyClientRender(container);
+        try {
+            if (renderedEl.innerHTML.trim()) {
+                // Server already rendered content - just handle diagrams
+                processDiagramPlaceholders(container);
+            } else {
+                // Legacy path - render everything client-side
+                legacyClientRender(container);
+            }
+        } catch (_e) {
+            // Ensure the container is still marked as rendered even on error.
+            // Log so rendering failures are diagnosable in the browser console.
+            if (typeof console !== 'undefined' && console.error) {
+                console.error('Failed to process markdown container:', _e);
+            }
         }
 
         // Mark the container as processed so CSS switches from showing the
@@ -483,17 +517,55 @@
     /*  Bootstrap - wait for the DOM                                       */
     /* ------------------------------------------------------------------ */
 
+    /**
+     * Safety-net delay (ms).  If macro containers still lack the
+     * {@code js-rendered} class after this period, a final re-scan is
+     * triggered.  This covers edge cases where the initial scan ran
+     * before the macro DOM was fully in place.
+     */
+    var SAFETY_NET_DELAY = 1000;
+
+    /** Prevent bootstrap from running more than once. */
+    var bootstrapped = false;
+
     function bootstrap() {
+        if (bootstrapped) {
+            return;
+        }
+        bootstrapped = true;
+
         initMarkdownMacro();
         observeForNewMacros();
         setupCrossFrameMessaging();
+
+        // Safety net: re-scan after a delay for containers that may have been
+        // missed due to timing issues (lazy-loaded content, late iframe
+        // injection, etc.).
+        setTimeout(function () {
+            var unprocessed = document.querySelectorAll('.markdown-macro-body:not(.js-rendered)');
+            if (unprocessed.length > 0) {
+                // Reset the processed flag so processContainer runs again
+                Array.prototype.forEach.call(unprocessed, function (el) {
+                    el.removeAttribute('data-macro-rendered');
+                });
+                initMarkdownMacro();
+            }
+        }, SAFETY_NET_DELAY);
     }
 
     if (typeof AJS !== 'undefined') {
         AJS.toInit(bootstrap);
-    } else if (document.readyState === 'loading') {
+    }
+    // Always also register a DOMContentLoaded / immediate fallback so that
+    // the macro renders even when AJS.toInit does not fire (e.g. when the
+    // web resource is loaded after AUI has already initialised).
+    if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', bootstrap);
-    } else {
+    } else if (typeof AJS === 'undefined') {
         bootstrap();
+    } else {
+        // AJS is defined but the document is already loaded.  AJS.toInit
+        // should call us, but as an extra safeguard schedule a deferred call.
+        setTimeout(bootstrap, 0);
     }
 })();

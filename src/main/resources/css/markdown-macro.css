@@ -20,17 +20,13 @@
 
 .markdown-macro-body .markdown-rendered {
     display: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+    color: #333;
 }
 
 .markdown-macro-body.js-rendered .markdown-rendered {
     display: block;
-}
-
-/* Rendered Markdown area */
-.markdown-macro-body .markdown-rendered {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-        "Helvetica Neue", Arial, sans-serif;
-    color: #333;
 }
 
 /* Headings */
