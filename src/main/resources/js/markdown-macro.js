@@ -265,12 +265,23 @@
             return;
         }
 
+
+            // Mark the container as processed so CSS switches from showing the
+            // raw source to showing the rendered output.
+        container.classList.add('js-rendered');
+
+            // Nothing more to do if there are no diagrams
+        if (extracted.diagrams.length === 0) {
+            return;
+        }
+
         var observer = new MutationObserver(function (mutations) {
             mutations.forEach(function (mutation) {
                 Array.prototype.forEach.call(mutation.addedNodes, function (node) {
                     if (node.nodeType !== 1) {
                         return;
                     }
+
 
                     var containers;
                     if (node.classList && node.classList.contains('markdown-macro-body')) {

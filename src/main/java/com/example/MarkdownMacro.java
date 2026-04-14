@@ -80,7 +80,7 @@ public class MarkdownMacro implements Macro {
         String escaped = escapeHtml(body);
 
         return "<div class=\"" + CSS_CLASS + "\">"
-                + "<pre class=\"markdown-source\" style=\"display:none;\">"
+                + "<pre class=\"markdown-source\">"
                 + escaped
                 + "</pre>"
                 + "<div class=\"markdown-rendered\">"
