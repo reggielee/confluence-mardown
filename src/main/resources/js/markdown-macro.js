@@ -351,6 +351,17 @@
 
         var debounceTimer = null;
 
+
+            // Mark the container as processed so CSS switches from showing the
+            // raw source to showing the rendered output.
+        container.classList.add('js-rendered');
+
+            // Nothing more to do if there are no diagrams
+        if (extracted.diagrams.length === 0) {
+            return;
+        }
+
+
         var observer = new MutationObserver(function (mutations) {
             var shouldReinit = false;
 
@@ -361,7 +372,13 @@
                     if (node.nodeType !== 1) {
                         continue;
                     }
+
                     // New macro container added directly
+
+
+
+                    var containers;
+
                     if (node.classList && node.classList.contains('markdown-macro-body')) {
                         shouldReinit = true;
                         break;
