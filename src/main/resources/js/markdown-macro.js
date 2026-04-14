@@ -5,11 +5,12 @@
  *
  * The server renders Markdown to HTML via commonmark-java.  Diagram code blocks
  * (mermaid / graphviz) are emitted as placeholder elements with the source code
- * in a &lt;pre class="diagram-source"&gt;.  This script finds those placeholders,
+ * in a hidden pre element.  This script finds those placeholders,
  * renders the diagrams into SVG, and swaps the visible content.
  *
  * A MutationObserver watches for dynamically-inserted macro containers so that
- * the Confluence editor preview also triggers rendering.
+ * the Confluence editor preview also triggers rendering.  Diagram code blocks
+ * are emitted as placeholder elements with the source in a hidden "pre" element.
  *
  * A legacy client-side path is kept for backward-compatibility with pages that
  * were cached before the server-side rendering change.
