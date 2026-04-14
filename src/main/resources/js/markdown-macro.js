@@ -27,6 +27,12 @@
     var DIAGRAM_PLACEHOLDER_PREFIX = 'DIAGRAMPLACEHOLDER';
     var DIAGRAM_PLACEHOLDER_REGEX = /DIAGRAMPLACEHOLDER(\d+)END/g;
 
+    /** Cached Viz instance (viz.js 2.x) to avoid creating a new Web Worker per diagram. */
+    var vizInstance = null;
+
+    /** True once mermaid.initialize() has been called. */
+    var mermaidInitialized = false;
+
     /* ------------------------------------------------------------------ */
     /*  Cross-frame timing constants                                        */
     /* ------------------------------------------------------------------ */
@@ -129,6 +135,10 @@
 
     /**
      * Render a Mermaid diagram and return a promise that resolves to an SVG string.
+     *
+     * Handles both the callback API (mermaid 9.x) and the Promise API
+     * (mermaid 10+).  Also catches async rejections from the Promise
+     * returned by the async {@code mermaid.render} in 9.4.3+.
      */
     function renderMermaid(code, id) {
         return new Promise(function (resolve, reject) {
@@ -137,9 +147,29 @@
                 return;
             }
             try {
-                mermaid.render('mermaid-' + id, code, function (svg) {
-                    resolve(svg);
+                var resolved = false;
+                var result = mermaid.render('mermaid-' + id, code, function (svg) {
+                    if (!resolved) {
+                        resolved = true;
+                        resolve(svg);
+                    }
                 });
+                // mermaid.render may return a Promise (9.4.3 async / 10.x API)
+                if (result && typeof result.then === 'function') {
+                    result.then(function (svgOrObj) {
+                        if (!resolved) {
+                            resolved = true;
+                            // mermaid 10+ returns { svg: string }
+                            var svg = (typeof svgOrObj === 'string') ? svgOrObj : svgOrObj.svg;
+                            resolve(svg);
+                        }
+                    }).catch(function (err) {
+                        if (!resolved) {
+                            resolved = true;
+                            reject(err);
+                        }
+                    });
+                }
             } catch (err) {
                 reject(err);
             }
@@ -148,6 +178,11 @@
 
     /**
      * Render a Graphviz (DOT) diagram and return a promise that resolves to an SVG string.
+     *
+     * Reuses a single {@code Viz} instance across calls so that we do not
+     * create a new Web Worker for every diagram on the page.  If the
+     * previous instance is in an error state (viz.js 2.x marks an instance
+     * as unusable after a render failure), a fresh instance is created.
      */
     function renderGraphviz(code) {
         return new Promise(function (resolve, reject) {
@@ -156,9 +191,19 @@
                 return;
             }
             try {
-                var viz = new Viz();
-                viz.renderString(code).then(resolve).catch(reject);
+                if (!vizInstance) {
+                    vizInstance = new Viz();
+                }
+                vizInstance.renderString(code)
+                    .then(resolve)
+                    .catch(function (err) {
+                        // viz.js 2.x marks the instance as unusable after an
+                        // error; discard it so the next call creates a new one.
+                        vizInstance = null;
+                        reject(err);
+                    });
             } catch (err) {
+                vizInstance = null;
                 reject(err);
             }
         });
@@ -203,7 +248,8 @@
                 return;
             }
 
-            var code = unescapeHtml(sourceEl.textContent || sourceEl.innerText || '');
+            // textContent already decodes HTML entities, so no unescapeHtml needed
+            var code = sourceEl.textContent || sourceEl.innerText || '';
 
             renderDiagram(type, code, idx)
                 .then(function (svg) {
@@ -254,7 +300,8 @@
         }
 
         var renderedEl = container.querySelector('.markdown-rendered');
-        var rawMarkdown = unescapeHtml(sourceEl.textContent || sourceEl.innerText || '');
+        // textContent already decodes HTML entities, so no unescapeHtml needed
+        var rawMarkdown = sourceEl.textContent || sourceEl.innerText || '';
         var extracted = extractDiagrams(rawMarkdown);
 
         var html;
@@ -326,13 +373,14 @@
     /* ------------------------------------------------------------------ */
 
     function initMarkdownMacro() {
-        // Initialise Mermaid with safe defaults
-        if (typeof mermaid !== 'undefined') {
+        // Initialise Mermaid with safe defaults (once only)
+        if (!mermaidInitialized && typeof mermaid !== 'undefined') {
             mermaid.initialize({
                 startOnLoad: false,
                 theme: 'default',
                 securityLevel: 'strict'
             });
+            mermaidInitialized = true;
         }
 
         var containers = collectContainers(document);
