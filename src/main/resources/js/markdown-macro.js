@@ -3,24 +3,33 @@
  *
  * Client-side rendering logic for the Markdown Chart Macro.
  *
- * Workflow:
- *   1. Find every <div class="markdown-macro-body"> on the page and in
- *      same-origin child iframes (handles Confluence editor preview).
- *   2. Read the raw Markdown from the hidden <pre class="markdown-source">.
- *   3. Pre-process: extract fenced code blocks for mermaid / graphviz (dot).
- *   4. Render the remaining Markdown to HTML via marked.js.
- *   5. Inject the HTML and replace diagram placeholders with rendered SVG.
+ * The server renders Markdown to HTML via commonmark-java.  Diagram code blocks
+ * (mermaid / graphviz) are emitted as placeholder elements with the source code
+ * in a hidden pre element.  This script finds those placeholders,
+ * renders the diagrams into SVG, and swaps the visible content.
+ *
+ * A MutationObserver watches for dynamically-inserted macro containers so that
+ * the Confluence editor preview also triggers rendering.  Same-origin child
+ * iframes (e.g. the blank.html preview frame) are also scanned for macro
+ * content, and cross-frame postMessage communication ensures the parent is
+ * notified when new content appears inside an iframe.
+ *
+ * A legacy client-side path is kept for backward-compatibility with pages that
+ * were cached before the server-side rendering change.
  */
 (function () {
     'use strict';
 
     /* ------------------------------------------------------------------ */
-    /*  Configuration                                                      */
+    /*  Legacy constants (client-side rendering path)                       */
     /* ------------------------------------------------------------------ */
 
-    var DIAGRAM_PLACEHOLDER_PREFIX = '___DIAGRAM_PLACEHOLDER_';
-    var DIAGRAM_PLACEHOLDER_REGEX = /___DIAGRAM_PLACEHOLDER_(\d+)___/g;
-    var PROCESSED_ATTR = 'data-markdown-rendered';
+    var DIAGRAM_PLACEHOLDER_PREFIX = 'DIAGRAMPLACEHOLDER';
+    var DIAGRAM_PLACEHOLDER_REGEX = /DIAGRAMPLACEHOLDER(\d+)END/g;
+
+    /* ------------------------------------------------------------------ */
+    /*  Cross-frame timing constants                                        */
+    /* ------------------------------------------------------------------ */
 
     /**
      * Delay (ms) after an iframe loads before re-scanning for macro content.
@@ -47,7 +56,7 @@
 
     /**
      * Un-escape the minimal HTML entities produced by the Java backend so that
-     * the original Markdown source is restored for the parsers.
+     * the original source is restored for the diagram renderers / parsers.
      */
     function unescapeHtml(text) {
         return text
@@ -56,28 +65,6 @@
             .replace(/&gt;/g, '>')
             .replace(/&lt;/g, '<')
             .replace(/&amp;/g, '&');
-    }
-
-    /**
-     * Extract fenced code blocks whose language hint is one of the supported
-     * diagram types.  Each match is replaced with a unique placeholder string.
-     *
-     * @param {string} markdown  Raw Markdown text.
-     * @returns {{ markdown: string, diagrams: Array<{type: string, code: string}> }}
-     */
-    function extractDiagrams(markdown) {
-        var diagrams = [];
-        var index = 0;
-
-        var fenceRegex = /```(mermaid|graphviz|dot)\s*\n([\s\S]*?)```/g;
-
-        var processed = markdown.replace(fenceRegex, function (_match, lang, code) {
-            var type = (lang === 'dot') ? 'graphviz' : lang;
-            diagrams.push({ type: type, code: code.trim() });
-            return DIAGRAM_PLACEHOLDER_PREFIX + (index++) + '___';
-        });
-
-        return { markdown: processed, diagrams: diagrams };
     }
 
     /* ------------------------------------------------------------------ */
@@ -99,7 +86,7 @@
         var containers = [];
 
         // Containers in the current document
-        var local = doc.querySelectorAll('.markdown-macro-body:not([' + PROCESSED_ATTR + '])');
+        var local = doc.querySelectorAll('.markdown-macro-body');
         Array.prototype.push.apply(containers, Array.prototype.slice.call(local));
 
         // Containers inside same-origin child iframes
@@ -108,13 +95,11 @@
             try {
                 var iframeDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
                 if (iframeDoc) {
-                    var nested = iframeDoc.querySelectorAll(
-                        '.markdown-macro-body:not([' + PROCESSED_ATTR + '])'
-                    );
+                    var nested = iframeDoc.querySelectorAll('.markdown-macro-body');
                     Array.prototype.push.apply(containers, Array.prototype.slice.call(nested));
                 }
             } catch (_e) {
-                // Cross-origin iframe – cannot access, skip silently
+                // Cross-origin iframe - cannot access, skip silently
             }
         });
 
@@ -139,7 +124,7 @@
     }
 
     /* ------------------------------------------------------------------ */
-    /*  Rendering helpers                                                   */
+    /*  Diagram rendering helpers                                           */
     /* ------------------------------------------------------------------ */
 
     /**
@@ -182,16 +167,154 @@
     /**
      * Render a single diagram entry and return a promise resolving to an SVG string.
      */
-    function renderDiagram(entry, index) {
-        if (entry.type === 'mermaid') {
-            return renderMermaid(entry.code, index);
+    function renderDiagram(type, code, index) {
+        if (type === 'mermaid') {
+            return renderMermaid(code, index);
         }
-        if (entry.type === 'graphviz') {
-            return renderGraphviz(entry.code);
+        if (type === 'graphviz') {
+            return renderGraphviz(code);
         }
         return Promise.resolve(
-            '<pre class="diagram-error">[Unsupported diagram type: ' + entry.type + ']</pre>'
+            '<pre class="diagram-error">[Unsupported diagram type: ' + type + ']</pre>'
         );
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Server-rendered diagram processing                                  */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Find diagram placeholder elements inside a container that was rendered
+     * on the server.  For each one, read the source, render via mermaid / viz,
+     * and swap the visible content.
+     */
+    function processDiagramPlaceholders(container) {
+        var placeholders = container.querySelectorAll('.diagram-placeholder');
+        if (placeholders.length === 0) {
+            return;
+        }
+
+        Array.prototype.forEach.call(placeholders, function (placeholder) {
+            var type = placeholder.getAttribute('data-diagram-type');
+            var idx = placeholder.getAttribute('data-diagram-index') || '0';
+            var sourceEl = placeholder.querySelector('.diagram-source');
+            var renderEl = placeholder.querySelector('.diagram-render');
+            if (!sourceEl || !renderEl) {
+                return;
+            }
+
+            var code = unescapeHtml(sourceEl.textContent || sourceEl.innerText || '');
+
+            renderDiagram(type, code, idx)
+                .then(function (svg) {
+                    renderEl.innerHTML = '<div class="diagram-container">' + svg + '</div>';
+                    renderEl.style.display = '';
+                    sourceEl.style.display = 'none';
+                })
+                .catch(function (err) {
+                    renderEl.innerHTML = '<pre class="diagram-error">Diagram render error: '
+                        + (err.message || err) + '</pre>';
+                    renderEl.style.display = '';
+                    sourceEl.style.display = 'none';
+                });
+        });
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Legacy client-side Markdown rendering (backward-compatibility)       */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Extract fenced code blocks whose language hint is one of the supported
+     * diagram types.  Each match is replaced with a unique placeholder string.
+     */
+    function extractDiagrams(markdown) {
+        var diagrams = [];
+        var index = 0;
+
+        var fenceRegex = /```(mermaid|graphviz|dot)\s*\n([\s\S]*?)```/g;
+
+        var processed = markdown.replace(fenceRegex, function (_match, lang, code) {
+            var type = (lang === 'dot') ? 'graphviz' : lang;
+            diagrams.push({ type: type, code: code.trim() });
+            return DIAGRAM_PLACEHOLDER_PREFIX + (index++) + 'END';
+        });
+
+        return { markdown: processed, diagrams: diagrams };
+    }
+
+    /**
+     * Full client-side rendering for containers whose .markdown-rendered div
+     * is empty (pages cached before the server-side rendering change).
+     */
+    function legacyClientRender(container) {
+        var sourceEl = container.querySelector('.markdown-source');
+        if (!sourceEl) {
+            return;
+        }
+
+        var renderedEl = container.querySelector('.markdown-rendered');
+        var rawMarkdown = unescapeHtml(sourceEl.textContent || sourceEl.innerText || '');
+        var extracted = extractDiagrams(rawMarkdown);
+
+        var html;
+        if (typeof marked !== 'undefined') {
+            html = marked.parse(extracted.markdown);
+        } else {
+            html = '<pre>' + extracted.markdown + '</pre>';
+        }
+
+        renderedEl.innerHTML = html;
+
+        if (extracted.diagrams.length === 0) {
+            return;
+        }
+
+        var promises = extracted.diagrams.map(function (entry, idx) {
+            return renderDiagram(entry.type, entry.code, idx).catch(function (err) {
+                return '<pre class="diagram-error">Diagram render error: '
+                    + (err.message || err) + '</pre>';
+            });
+        });
+
+        Promise.all(promises).then(function (svgs) {
+            var updatedHtml = renderedEl.innerHTML.replace(
+                DIAGRAM_PLACEHOLDER_REGEX,
+                function (_m, idx) {
+                    return '<div class="diagram-container">' + svgs[parseInt(idx, 10)] + '</div>';
+                }
+            );
+            renderedEl.innerHTML = updatedHtml;
+        });
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Container processing                                                */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Process a single .markdown-macro-body container.  If the server already
+     * rendered content into .markdown-rendered we only handle diagrams;
+     * otherwise we fall back to the legacy full client-side rendering path.
+     */
+    function processContainer(container) {
+        if (container.getAttribute('data-macro-rendered')) {
+            return; // already processed
+        }
+        container.setAttribute('data-macro-rendered', 'true');
+
+        var renderedEl = container.querySelector('.markdown-rendered');
+        if (!renderedEl) {
+            return;
+        }
+
+        if (renderedEl.innerHTML.trim()) {
+            // Server already rendered content - just handle diagrams
+            processDiagramPlaceholders(container);
+        } else {
+            // Legacy path - render everything client-side
+            legacyClientRender(container);
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -209,53 +332,8 @@
         }
 
         var containers = collectContainers(document);
-
         Array.prototype.forEach.call(containers, function (container) {
-            var sourceEl = container.querySelector('.markdown-source');
-            if (!sourceEl) {
-                return;
-            }
-
-            // Mark as processed to prevent duplicate rendering
-            container.setAttribute(PROCESSED_ATTR, 'true');
-
-            var rawMarkdown = unescapeHtml(sourceEl.textContent || sourceEl.innerText || '');
-            var extracted = extractDiagrams(rawMarkdown);
-
-            // Render Markdown to HTML via marked.js
-            var html;
-            if (typeof marked !== 'undefined') {
-                html = marked.parse(extracted.markdown);
-            } else {
-                // Fallback: show raw Markdown in a <pre> block
-                html = '<pre>' + extracted.markdown + '</pre>';
-            }
-
-            var renderedEl = container.querySelector('.markdown-rendered');
-            renderedEl.innerHTML = html;
-
-            // Nothing more to do if there are no diagrams
-            if (extracted.diagrams.length === 0) {
-                return;
-            }
-
-            // Render all diagrams in parallel and then swap in the SVGs
-            var promises = extracted.diagrams.map(function (entry, idx) {
-                return renderDiagram(entry, idx).catch(function (err) {
-                    return '<pre class="diagram-error">Diagram render error: '
-                        + (err.message || err) + '</pre>';
-                });
-            });
-
-            Promise.all(promises).then(function (svgs) {
-                var updatedHtml = renderedEl.innerHTML.replace(
-                    DIAGRAM_PLACEHOLDER_REGEX,
-                    function (_m, idx) {
-                        return '<div class="diagram-container">' + svgs[parseInt(idx, 10)] + '</div>';
-                    }
-                );
-                renderedEl.innerHTML = updatedHtml;
-            });
+            processContainer(container);
         });
 
         // Watch for iframes that may load preview content later
@@ -263,14 +341,10 @@
     }
 
     /* ------------------------------------------------------------------ */
-    /*  MutationObserver – react to dynamically injected content            */
+    /*  MutationObserver - detect dynamically-inserted macro containers     */
     /* ------------------------------------------------------------------ */
 
-    /**
-     * Watch the DOM for new macro containers or iframes being added (e.g.
-     * Confluence editor inserting a preview iframe after the page loads).
-     */
-    function observeDynamicContent() {
+    function observeForNewMacros() {
         if (typeof MutationObserver === 'undefined') {
             return;
         }
@@ -297,7 +371,7 @@
                         shouldReinit = true;
                         break;
                     }
-                    // Container added as a descendant of the new node
+                    // Container or iframe added as a descendant
                     if (node.querySelector &&
                         (node.querySelector('.markdown-macro-body') || node.querySelector('iframe'))) {
                         shouldReinit = true;
@@ -347,18 +421,18 @@
                     window.location.origin
                 );
             } catch (_e) {
-                // Cross-origin parent – cannot notify
+                // Cross-origin parent - cannot notify
             }
         }
     }
 
     /* ------------------------------------------------------------------ */
-    /*  Bootstrap – wait for the DOM                                       */
+    /*  Bootstrap - wait for the DOM                                       */
     /* ------------------------------------------------------------------ */
 
     function bootstrap() {
         initMarkdownMacro();
-        observeDynamicContent();
+        observeForNewMacros();
         setupCrossFrameMessaging();
     }
 
