@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<atlassian-plugin key="com.example.my-markdown-macro"
+                  name="Markdown Chart Macro"
+                  plugins-version="2">
+
+    <plugin-info>
+        <description>Renders Markdown with Mermaid and Graphviz diagram support.</description>
+        <version>1.0.0</version>
+        <vendor name="Example" url="https://example.com"/>
+        <param name="atlassian-data-center-status">compatible</param>
+        <param name="atlassian-data-center-compatible">true</param>
+    </plugin-info>
+
+    <!-- Web resources: JS + CSS loaded on Confluence pages that contain the macro -->
+    <web-resource key="markdown-macro-resources"
+                  name="Markdown Macro Web Resources">
+        <dependency>com.atlassian.auiplugin:ajs</dependency>
+
+        <!-- Third-party libraries -->
+        <resource type="download" name="marked.min.js"
+                  location="js/marked.min.js"/>
+        <resource type="download" name="mermaid.min.js"
+                  location="js/mermaid.min.js"/>
+        <resource type="download" name="viz.js"
+                  location="js/viz.js"/>
+
+        <!-- Plugin code -->
+        <resource type="download" name="markdown-macro.js"
+                  location="js/markdown-macro.js"/>
+        <resource type="download" name="markdown-macro.css"
+                  location="css/markdown-macro.css"/>
+
+        <context>page</context>
+        <context>blogpost</context>
+        <context>atl.general</context>
+    </web-resource>
+
+    <!-- Macro definition -->
+    <xhtml-macro key="markdown-chart"
+                 name="markdown-chart"
+                 class="com.example.MarkdownMacro"
+                 icon="/download/resources/com.example.my-markdown-macro/images/icon.png">
+        <category name="formatting"/>
+        <description>Renders Markdown with Mermaid and Graphviz diagram support.</description>
+        <parameters/>
+    </xhtml-macro>
+</atlassian-plugin>
