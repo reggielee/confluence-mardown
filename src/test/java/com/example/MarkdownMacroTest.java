@@ -1,7 +1,9 @@
 package com.example;
 
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
+import com.atlassian.plugin.webresource.WebResourceManager;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -11,10 +13,12 @@ import org.junit.Test;
 public class MarkdownMacroTest {
 
     private MarkdownMacro macro;
+    private WebResourceManager webResourceManager;
 
     @Before
     public void setUp() {
-        macro = new MarkdownMacro();
+        webResourceManager = mock(WebResourceManager.class);
+        macro = new MarkdownMacro(webResourceManager);
     }
 
     /* ------------------------------------------------------------------ */
@@ -62,6 +66,20 @@ public class MarkdownMacroTest {
         assertTrue("Should contain outer div", result.contains("class=\"markdown-macro-body\""));
         assertTrue("Should contain hidden source pre", result.contains("class=\"markdown-source\""));
         assertTrue("Should contain rendered target div", result.contains("class=\"markdown-rendered\""));
+    }
+
+    @Test
+    public void execute_requiresWebResources() throws Exception {
+        macro.execute(null, "# Hello", null);
+        verify(webResourceManager).requireResource(
+                "com.example.my-markdown-macro:markdown-macro-resources");
+    }
+
+    @Test
+    public void execute_requiresWebResourcesEvenForEmptyBody() throws Exception {
+        macro.execute(null, null, null);
+        verify(webResourceManager).requireResource(
+                "com.example.my-markdown-macro:markdown-macro-resources");
     }
 
     @Test
